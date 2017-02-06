@@ -6,6 +6,7 @@
 #include <osg/ref_ptr>
 #include <osg/Vec3>
 #include <osg/Vec3d>
+#include <osg/Matrixd>
 
 #include "../mwworld/ptr.hpp"
 
@@ -124,6 +125,18 @@ namespace MWRender
         bool isVanityOrPreviewModeEnabled();
 
         bool isNearest();
+
+        osg::Matrixd hmdmatrix;
+        osg::Quat hmdQuat;
+        void setViewMatrix(osg::Matrixd viewmat)
+        {
+            hmdmatrix = viewmat;
+        }
+        void setHMDQuat(osg::Quat rotquat)
+        {
+            hmdQuat = rotquat;
+            hmdQuat = osg::Quat(hmdQuat.x(), -hmdQuat.z(), hmdQuat.y(), hmdQuat.w()); //Convert quat layout
+        }
     };
 }
 

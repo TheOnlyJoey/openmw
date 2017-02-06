@@ -1,6 +1,9 @@
 #ifndef OPENMW_MWRENDER_RENDERINGMANAGER_H
 #define OPENMW_MWRENDER_RENDERINGMANAGER_H
 
+#include <openhmd/openhmd.h>
+#include "stdio.h"
+
 #include <osg/ref_ptr>
 #include <osg/Light>
 
@@ -47,6 +50,30 @@ namespace SceneUtil
     class WorkQueue;
     class UnrefQueue;
 }
+
+class OpenHMD
+{
+public:
+    OpenHMD();
+    int init();
+    void exit();
+    void update();
+    void getVerbose();
+    osg::Quat getQuaternion();
+    osg::Matrixd getLeftViewMatrix();
+    osg::Matrixd getLeftProjectionMatrix();
+    osg::Matrixd getRightViewMatrix();
+    osg::Matrixd getRightProjectionMatrix();
+    float getIPD();
+    void setIPD(float inf);
+    bool isDummy();
+    float fval;
+    int ival;
+
+private:
+    ohmd_context* ctx;
+    ohmd_device* hmd;
+};
 
 namespace MWRender
 {
@@ -216,6 +243,10 @@ namespace MWRender
         osg::ref_ptr<SceneUtil::PositionAttitudeTransform> mPlayerNode;
         std::auto_ptr<Camera> mCamera;
         osg::Vec3f mCurrentCameraPos;
+
+        //HMD Support
+        OpenHMD* openhmd;
+        void toggleHMD(bool var);
 
         osg::ref_ptr<StateUpdater> mStateUpdater;
 

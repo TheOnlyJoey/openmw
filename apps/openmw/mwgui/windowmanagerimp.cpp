@@ -247,10 +247,20 @@ namespace MWGui
         // Create all cursors in advance
         createCursors();
         onCursorChange(MyGUI::PointerManager::getInstance().getDefaultPointer());
-        mCursorManager->setEnabled(true);
 
-        // hide mygui's pointer
-        MyGUI::PointerManager::getInstance().setVisible(false);
+        if (!Settings::Manager::getBool("hmd mode", "Video"))
+        {
+          mCursorManager->setEnabled(true);
+
+          // hide mygui's pointer
+          MyGUI::PointerManager::getInstance().setVisible(false);
+        }
+        else
+        {
+          MyGUI::PointerManager::getInstance().setVisible(true);
+          mCursorManager->setEnabled(false);
+          //TODO: Find out how to hide hardware cursor
+        }
 
         mVideoBackground = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>("ImageBox", 0,0,1,1,
             MyGUI::Align::Default, "InputBlocker");

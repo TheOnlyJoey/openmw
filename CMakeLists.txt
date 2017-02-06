@@ -77,6 +77,7 @@ option(BUILD_UNITTESTS "Enable Unittests with Google C++ Unittest" OFF)
 option(BUILD_NIFTEST "build nif file tester" OFF)
 option(BUILD_MYGUI_PLUGIN "build MyGUI plugin for OpenMW resources, to use with MyGUI tools" ON)
 option(BUILD_DOCS        "build documentation." OFF )
+option(BUILD_OPENHMD "build with OpenHMD support" ON )
 
 # what is necessary to build documentation
 IF( BUILD_DOCS )
@@ -270,6 +271,12 @@ include_directories("."
 )
 
 link_directories(${SDL2_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS})
+
+IF(BUILD_OPENHMD)
+	find_package(OpenHMD REQUIRED)
+	include_directories(${OpenHMD_INCLUDE_DIR})
+	link_directories(${OpenHMD_LIBRARY_DIRS})
+endif()
 
 if(MYGUI_STATIC)
    add_definitions(-DMYGUI_STATIC)

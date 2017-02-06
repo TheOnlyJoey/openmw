@@ -269,6 +269,8 @@ namespace MWRender
 
         mRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("near", mNearClip));
         mRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("far", mViewDistance));
+
+        toggleHMD(Settings::Manager::getBool("hmd mode", "Video"));
     }
 
     RenderingManager::~RenderingManager()
@@ -480,7 +482,19 @@ namespace MWRender
 
         osg::Vec3f focal, cameraPos;
         mCamera->getPosition(focal, cameraPos);
+
+        if (Settings::Manager::getBool("hmd mode", "Video"))
+        {
+            mCamera->allowVanityMode(false);
+            mCamera->setViewMatrix(openhmd->getLeftViewMatrix());
+            mCamera->setHMDQuat(openhmd->getQuaternion());
+
+            mViewer->getCamera()->setProjectionMatrix(openhmd->getLeftProjectionMatrix());
+            //TODO: Patch OSG to be able to get access to individual camera's and set correct projection matrices per eye
+        }
+        
         mCurrentCameraPos = cameraPos;
+        
         if (mWater->isUnderwater(cameraPos))
         {
             setFogColor(mUnderwaterColor * mUnderwaterWeight + mFogColor * (1.f-mUnderwaterWeight));
@@ -1031,4 +1045,184 @@ namespace MWRender
         SceneUtil::writeScene(node, filename, format);
     }
 
+    void RenderingManager::toggleHMD(bool var)
+    {
+        if (var)
+        {
+            osg::DisplaySettings::instance()->setStereoMode(osg::DisplaySettings::HORIZONTAL_SPLIT);
+            osg::DisplaySettings::instance()->setStereo(true);
+
+            openhmd = new OpenHMD();
+            openhmd->init();
+
+            osg::DisplaySettings::instance()->setEyeSeparation(0); //?
+        }
+        else
+        {
+            if (openhmd)
+            {
+                osg::DisplaySettings::instance()->setStereo(false);
+                openhmd->exit();
+            }
+        }
+    }
+}
+
+//OpenHMD helper Functions
+OpenHMD::OpenHMD()
+{
+    ctx = NULL;
+    hmd = NULL;
+}
+
+int OpenHMD::init()
+{
+    ctx = ohmd_ctx_create();
+    unsigned int num_devices = ohmd_ctx_probe(ctx);
+    if(num_devices < 1)
+    {
+        printf("failed to probe devices: %s\n", ohmd_ctx_get_error(ctx));
+        return -1;
+    }
+
+    printf("num devices: %d\n", num_devices);
+
+    for(unsigned int i = 0; i < num_devices; i++)
+    {
+        printf("vendor: %s\n", ohmd_list_gets(ctx, i, OHMD_VENDOR));
+        printf("product: %s\n", ohmd_list_gets(ctx, i, OHMD_PRODUCT));
+        printf("path: %s\n", ohmd_list_gets(ctx, i, OHMD_PATH));
+    }
+
+    hmd = ohmd_list_open_device(ctx, 0);
+
+    ohmd_device_geti(hmd, OHMD_SCREEN_HORIZONTAL_RESOLUTION, &ival);
+    printf("hres: %i\n", ival);
+    ohmd_device_geti(hmd, OHMD_SCREEN_VERTICAL_RESOLUTION, &ival);
+    printf("vres: %i\n", ival);
+
+    ohmd_device_getf(hmd, OHMD_SCREEN_HORIZONTAL_SIZE, &fval);
+    printf("hsize: %f\n", fval);
+    ohmd_device_getf(hmd, OHMD_SCREEN_VERTICAL_SIZE, &fval);
+    printf("vsize: %f\n", fval);
+
+    ohmd_device_getf(hmd, OHMD_LENS_HORIZONTAL_SEPARATION, &fval);
+    printf("lens seperation: %f\n", fval);
+    ohmd_device_getf(hmd, OHMD_LENS_VERTICAL_POSITION, &fval);
+    printf("lens vcenter: %f\n", fval);
+    ohmd_device_getf(hmd, OHMD_LEFT_EYE_FOV, &fval);
+    printf("fov: %f\n", fval);
+    ohmd_device_getf(hmd, OHMD_LEFT_EYE_ASPECT_RATIO, &fval);
+    printf("aspect: %f\n", fval);
+
+    if(!hmd)
+    {
+        printf("failed to open device: %s\n", ohmd_ctx_get_error(ctx));
+        return -1;
+    }
+
+    return 1;
+}
+
+void OpenHMD::exit()
+{
+    if (ctx)
+        ohmd_ctx_destroy(ctx);
+}
+
+void OpenHMD::update()
+{
+    if (ctx)
+        ohmd_ctx_update(ctx);
+}
+
+osg::Quat OpenHMD::getQuaternion()
+{
+    float qu[4];
+    ohmd_ctx_update(ctx);
+    ohmd_device_getf(hmd, OHMD_ROTATION_QUAT, qu);
+    osg::Quat returnquad = osg::Quat(qu[0],qu[1],qu[2],qu[3]);
+    return returnquad;
+}
+
+void OpenHMD::getVerbose()
+{
+    float q[4];
+
+    ohmd_ctx_update(ctx);
+
+    ohmd_device_getf(hmd, OHMD_ROTATION_QUAT, q);
+    printf("quat: % 4.4f, % 4.4f, % 4.4f, % 4.4f\n", q[0], q[1], q[2], q[3]);
+}
+
+
+osg::Matrixd OpenHMD::getLeftViewMatrix()
+{
+    //Get the matrix from OpenHMD and return a osg::Matrixd
+    float projm[16];
+    ohmd_device_getf(hmd, OHMD_LEFT_EYE_GL_MODELVIEW_MATRIX, projm);
+    osg::Matrixd oprojm = osg::Matrixd(projm[0],projm[1],projm[2],projm[3],
+                                         projm[4],projm[5],projm[6],projm[7],
+                                         projm[8],projm[9],projm[10],projm[11],
+                                         projm[12],projm[13],projm[14],projm[15]);
+    return oprojm;
+}
+
+osg::Matrixd OpenHMD::getLeftProjectionMatrix()
+{
+    //Get the matrix from OpenHMD and return a osg::Matrixd
+    float projm[16];
+    ohmd_device_getf(hmd, OHMD_LEFT_EYE_GL_PROJECTION_MATRIX, projm);
+    osg::Matrixd oprojm = osg::Matrixd(projm[0],projm[1],projm[2],projm[3],
+                                         projm[4],projm[5],projm[6],projm[7],
+                                         projm[8],projm[9],projm[10],projm[11],
+                                         projm[12],projm[13],projm[14],projm[15]);
+    return oprojm;
+}
+
+osg::Matrixd OpenHMD::getRightViewMatrix()
+{
+    //Get the matrix from OpenHMD and return a osg::Matrixd
+    float projm[16];
+    ohmd_device_getf(hmd, OHMD_RIGHT_EYE_GL_MODELVIEW_MATRIX, projm);
+    osg::Matrixd oprojm = osg::Matrixd(projm[0],projm[1],projm[2],projm[3],
+                                         projm[4],projm[5],projm[6],projm[7],
+                                         projm[8],projm[9],projm[10],projm[11],
+                                         projm[12],projm[13],projm[14],projm[15]);
+    return oprojm;
+}
+
+osg::Matrixd OpenHMD::getRightProjectionMatrix()
+{
+    //Get the matrix from OpenHMD and return a osg::Matrixd
+    float projm[16];
+    ohmd_device_getf(hmd, OHMD_RIGHT_EYE_GL_PROJECTION_MATRIX, projm);
+    osg::Matrixd oprojm = osg::Matrixd(projm[0],projm[1],projm[2],projm[3],
+                                         projm[4],projm[5],projm[6],projm[7],
+                                         projm[8],projm[9],projm[10],projm[11],
+                                         projm[12],projm[13],projm[14],projm[15]);
+
+    return oprojm;
+}
+
+float OpenHMD::getIPD()
+{
+    float returnf;
+    ohmd_device_getf(hmd, OHMD_EYE_IPD, &returnf);
+
+    return returnf;
+}
+
+void OpenHMD::setIPD(float inf)
+{
+    ohmd_device_setf(hmd, OHMD_EYE_IPD, &inf);
+}
+
+bool OpenHMD::isDummy()
+{
+    ohmd_ctx_probe(ctx);
+    if (strcmp(ohmd_list_gets(ctx, 0, OHMD_PRODUCT), "Dummy Device") == 0)
+        return true;
+
+    return false;
 }

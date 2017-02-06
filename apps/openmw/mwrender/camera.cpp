@@ -3,6 +3,7 @@
 #include <osg/Camera>
 
 #include <components/sceneutil/positionattitudetransform.hpp>
+#include <components/settings/settings.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -113,6 +114,18 @@ namespace MWRender
         osg::Vec3d offset = orient * osg::Vec3d(0, isFirstPerson() ? 0 : -mCameraDistance, 0);
         position += offset;
 
+        if (Settings::Manager::getBool("hmd mode", "Video"))
+        {
+            //Preserve the YAW from the camera for rotating the 'body'
+            orient[0] = 0;
+            orient[1] = 0;
+            double mag = sqrt(orient[3]*orient[3] + orient[2]*orient[2]);
+            orient[3] /= mag;
+            orient[2] /= mag;
+
+            orient = hmdQuat*orient;
+        }
+
         osg::Vec3d forward = orient * osg::Vec3d(0,1,0);
         osg::Vec3d up = orient * osg::Vec3d(0,0,1);
 
@@ -190,7 +203,7 @@ namespace MWRender
         mFirstPersonView = !mFirstPersonView;
         processViewChange();
     }
-    
+
     void Camera::allowVanityMode(bool allow)
     {
         if (!allow && mVanity.enabled)

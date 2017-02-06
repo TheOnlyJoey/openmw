@@ -29,6 +29,7 @@ namespace MWGui
             MyGUI::ListBox* mResolutionList;
             MyGUI::Button* mFullscreenButton;
             MyGUI::Button* mWindowBorderButton;
+            MyGUI::Button* mHMDModeButton;
             MyGUI::ComboBox* mTextureFilteringButton;
             MyGUI::Widget* mAnisotropyBox;
 

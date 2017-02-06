@@ -134,6 +134,7 @@ target_link_libraries(openmw
     ${FFmpeg_LIBRARIES}
     ${MyGUI_LIBRARIES}
     ${SDL2_LIBRARY}
+    ${OpenHMD_LIBRARIES}
     "osg-ffmpeg-videoplayer"
     "oics"
     components

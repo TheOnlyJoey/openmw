@@ -176,6 +176,7 @@ namespace MWGui
         getWidget(mResolutionList, "ResolutionList");
         getWidget(mFullscreenButton, "FullscreenButton");
         getWidget(mWindowBorderButton, "WindowBorderButton");
+        getWidget(mHMDModeButton, "WindowBorderButton");
         getWidget(mTextureFilteringButton, "TextureFilteringButton");
         getWidget(mAnisotropyBox, "AnisotropyBox");
         getWidget(mControlsBox, "ControlsBox");
@@ -248,6 +249,7 @@ namespace MWGui
             mWaterTextureSize->setIndexSelected(2);
 
         mWindowBorderButton->setEnabled(!Settings::Manager::getBool("fullscreen", "Video"));
+        mHMDModeButton->setEnabled(Settings::Manager::getBool("hmd mode", "Video"));
 
         mKeyboardSwitch->setStateSelected(true);
         mControllerSwitch->setStateSelected(false);
@@ -376,6 +378,11 @@ namespace MWGui
             }
 
             mWindowBorderButton->setEnabled(!newState);
+        }
+
+        if (_sender == mHMDModeButton)
+        {
+            //TODO: direct effect of hmd toggle
         }
 
         if (getSettingType(_sender) == checkButtonType)
