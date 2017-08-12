@@ -8,7 +8,7 @@
 ## -----------------------------------------------------------------------------
 ## Check for the header files
 
-find_path (OpenHMD_INCLUDES openhmd/openhmd.h
+find_path (OpenHMD_INCLUDES openhmd.h
   PATHS /usr/local/include /usr/include /sw/include
   )
 

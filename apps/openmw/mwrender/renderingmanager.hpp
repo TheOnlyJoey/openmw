@@ -1,7 +1,7 @@
 #ifndef OPENMW_MWRENDER_RENDERINGMANAGER_H
 #define OPENMW_MWRENDER_RENDERINGMANAGER_H
 
-#include <openhmd/openhmd.h>
+#include <openhmd.h>
 #include "stdio.h"
 
 #include <osg/ref_ptr>
