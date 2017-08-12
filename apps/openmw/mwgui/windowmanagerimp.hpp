@@ -9,12 +9,17 @@
 
 #include <stack>
 
+#include <osg/ref_ptr>
+
 #include "../mwbase/windowmanager.hpp"
+
+#include "../mwworld/ptr.hpp"
 
 #include <components/settings/settings.hpp>
 #include <components/to_utf8/to_utf8.hpp>
 
 #include "mapwindow.hpp"
+#include "textcolours.hpp"
 
 #include <MyGUI_KeyCode.h>
 #include <MyGUI_Types.h>
@@ -55,6 +60,11 @@ namespace osgViewer
 namespace Resource
 {
     class ResourceSystem;
+}
+
+namespace SceneUtil
+{
+    class WorkQueue;
 }
 
 namespace SDLUtil
@@ -119,7 +129,7 @@ namespace MWGui
     typedef std::pair<std::string, int> Faction;
     typedef std::vector<Faction> FactionList;
 
-    WindowManager(osgViewer::Viewer* viewer, osg::Group* guiRoot, Resource::ResourceSystem* resourceSystem,
+    WindowManager(osgViewer::Viewer* viewer, osg::Group* guiRoot, Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
                   const std::string& logpath, const std::string& cacheDir, bool consoleOnlyScripts,
                   Translation::Storage& translationDataStorage, ToUTF8::FromType encoding, bool exportFonts, const std::map<std::string,std::string>& fallbackMap, const std::string& versionDescription);
     virtual ~WindowManager();
@@ -128,7 +138,6 @@ namespace MWGui
     void setStore (const MWWorld::ESMStore& store);
 
     void initUI();
-    void renderWorldMap();
 
     virtual Loading::Listener* getLoadingScreen();
 
@@ -237,7 +246,9 @@ namespace MWGui
     virtual std::string getSelectedSpell() { return mSelectedSpell; }
     virtual void setSelectedSpell(const std::string& spellId, int successChancePercent);
     virtual void setSelectedEnchantItem(const MWWorld::Ptr& item);
+    virtual const MWWorld::Ptr& getSelectedEnchantItem() const;
     virtual void setSelectedWeapon(const MWWorld::Ptr& item);
+    virtual const MWWorld::Ptr& getSelectedWeapon() const;
     virtual void unsetSelectedSpell();
     virtual void unsetSelectedWeapon();
 
@@ -370,6 +381,8 @@ namespace MWGui
     /// Cycle to next or previous weapon
     virtual void cycleWeapon(bool next);
 
+    virtual void playSound(const std::string& soundId, float volume = 1.f, float pitch = 1.f);
+
     // In WindowManager for now since there isn't a VFS singleton
     virtual std::string correctIconPath(const std::string& path);
     virtual std::string correctBookartPath(const std::string& path, int width, int height);
@@ -379,14 +392,17 @@ namespace MWGui
     void removeCell(MWWorld::CellStore* cell);
     void writeFog(MWWorld::CellStore* cell);
 
+    virtual const MWGui::TextColours& getTextColours();
+
   private:
     const MWWorld::ESMStore* mStore;
     Resource::ResourceSystem* mResourceSystem;
+    osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
 
     osgMyGUI::Platform* mGuiPlatform;
     osgViewer::Viewer* mViewer;
 
-    std::auto_ptr<Gui::FontLoader> mFontLoader;
+    std::unique_ptr<Gui::FontLoader> mFontLoader;
 
     bool mConsoleOnlyScripts;
 
@@ -395,6 +411,8 @@ namespace MWGui
     void onWindowChangeCoord(MyGUI::Window* _sender);
 
     std::string mSelectedSpell;
+    MWWorld::Ptr mSelectedEnchantItem;
+    MWWorld::Ptr mSelectedWeapon;
 
     std::stack<WindowModal*> mCurrentModals;
 
@@ -499,6 +517,8 @@ namespace MWGui
 
     std::string mVersionDescription;
 
+    MWGui::TextColours mTextColours;
+
     /**
      * Called when MyGUI tries to retrieve a tag's value. Tags must be denoted in #{tag} notation and will be replaced upon setting a user visible text/property.
      * Supported syntax:
@@ -526,6 +546,8 @@ namespace MWGui
     void createTextures();
     void createCursors();
     void setMenuTransparency(float value);
+
+    void updatePinnedWindows();
   };
 }
 

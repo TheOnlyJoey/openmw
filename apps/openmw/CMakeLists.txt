@@ -23,7 +23,7 @@ add_openmw_dir (mwrender
     actors objects renderingmanager animation rotatecontroller sky npcanimation vismask
     creatureanimation effectmanager util renderinginterface pathgrid rendermode weaponanimation
     bulletdebugdraw globalmap characterpreview camera localmap water terrainstorage ripplesimulation
-    renderbin actoranimation
+    renderbin actoranimation landmanager
     )
 
 add_openmw_dir (mwinput
@@ -81,10 +81,10 @@ add_openmw_dir (mwclass
 
 add_openmw_dir (mwmechanics
     mechanicsmanagerimp stat creaturestats magiceffects movement actorutil
-    drawstate spells activespells npcstats aipackage aisequence aipursue alchemy aiwander aitravel aifollow aiavoiddoor
+    drawstate spells activespells npcstats aipackage aisequence aipursue alchemy aiwander aitravel aifollow aiavoiddoor aibreathe
     aiescort aiactivate aicombat repair enchanting pathfinding pathgrid security spellsuccess spellcasting
     disease pickpocket levelledlist combat steering obstacle autocalcspell difficultyscaling aicombataction actor summoning
-    character actors objects aistate coordinateconverter trading aiface
+    character actors objects aistate coordinateconverter trading aiface weaponpriority spellpriority
     )
 
 add_openmw_dir (mwstate

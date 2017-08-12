@@ -30,6 +30,8 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/imagemanager.hpp>
 
+#include <components/sceneutil/workqueue.hpp>
+
 #include <components/translation/translation.hpp>
 
 #include <components/myguiplatform/myguiplatform.hpp>
@@ -111,15 +113,26 @@
 #include "jailscreen.hpp"
 #include "itemchargeview.hpp"
 
+namespace
+{
+
+    MyGUI::Colour getTextColour(const std::string& type)
+    {
+        return MyGUI::Colour::parse(MyGUI::LanguageManager::getInstance().replaceTags("#{fontcolour=" + type + "}"));
+    }
+
+}
+
 namespace MWGui
 {
 
     WindowManager::WindowManager(
-            osgViewer::Viewer* viewer, osg::Group* guiRoot, Resource::ResourceSystem* resourceSystem
-            , const std::string& logpath, const std::string& resourcePath, bool consoleOnlyScripts,
+            osgViewer::Viewer* viewer, osg::Group* guiRoot, Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
+            const std::string& logpath, const std::string& resourcePath, bool consoleOnlyScripts,
             Translation::Storage& translationDataStorage, ToUTF8::FromType encoding, bool exportFonts, const std::map<std::string, std::string>& fallbackMap, const std::string& versionDescription)
       : mStore(NULL)
       , mResourceSystem(resourceSystem)
+      , mWorkQueue(workQueue)
       , mViewer(viewer)
       , mConsoleOnlyScripts(consoleOnlyScripts)
       , mCurrentModals()
@@ -290,12 +303,34 @@ namespace MWGui
         int w = MyGUI::RenderManager::getInstance().getViewSize().width;
         int h = MyGUI::RenderManager::getInstance().getViewSize().height;
 
+        mTextColours.header = getTextColour("header");
+        mTextColours.normal = getTextColour("normal");
+        mTextColours.notify = getTextColour("notify");
+
+        mTextColours.link = getTextColour("link");
+        mTextColours.linkOver = getTextColour("link_over");
+        mTextColours.linkPressed = getTextColour("link_pressed");
+
+        mTextColours.answer = getTextColour("answer");
+        mTextColours.answerOver = getTextColour("answer_over");
+        mTextColours.answerPressed = getTextColour("answer_pressed");
+
+        mTextColours.journalLink = getTextColour("journal_link");
+        mTextColours.journalLinkOver = getTextColour("journal_link_over");
+        mTextColours.journalLinkPressed = getTextColour("journal_link_pressed");
+
+        mTextColours.journalTopic = getTextColour("journal_topic");
+        mTextColours.journalTopicOver = getTextColour("journal_topic_over");
+        mTextColours.journalTopicPressed = getTextColour("journal_topic_pressed");
+
+
         mDragAndDrop = new DragAndDrop();
 
         mRecharge = new Recharge();
         mMenu = new MainMenu(w, h, mResourceSystem->getVFS(), mVersionDescription);
         mLocalMapRender = new MWRender::LocalMap(mViewer->getSceneData()->asGroup());
-        mMap = new MapWindow(mCustomMarkers, mDragAndDrop, mLocalMapRender);
+        mMap = new MapWindow(mCustomMarkers, mDragAndDrop, mLocalMapRender, mWorkQueue);
+        mMap->renderGlobalMap();
         trackWindow(mMap, "map");
         mStatsWindow = new StatsWindow(mDragAndDrop);
         trackWindow(mStatsWindow, "stats");
@@ -375,15 +410,12 @@ namespace MWGui
             mPlayerSkillValues.insert(std::make_pair(ESM::Skill::sSkillIds[i], MWMechanics::SkillValue()));
         }
 
+        updatePinnedWindows();
+
         // Set up visibility
         updateVisible();
 
         MWBase::Environment::get().getInputManager()->changeInputMode(false);
-    }
-
-    void WindowManager::renderWorldMap()
-    {
-        mMap->renderGlobalMap(mLoadingScreen);
     }
 
     void WindowManager::setNewGame(bool newgame)
@@ -557,14 +589,14 @@ namespace MWGui
         setSpellVisibility((mAllowed & GW_Magic) && (!mSpellWindow->pinned() || (mForceHidden & GW_Magic)));
         setHMSVisibility((mAllowed & GW_Stats) && (!mStatsWindow->pinned() || (mForceHidden & GW_Stats)));
 
-        // If in game mode, show only the pinned windows
-        if (gameMode)
+        // If in game mode (or interactive messagebox), show only the pinned windows
+        if (mGuiModes.empty())
         {
             mInventoryWindow->setGuiMode(GM_None);
-            mMap->setVisible(mMap->pinned() && !(mForceHidden & GW_Map));
-            mStatsWindow->setVisible(mStatsWindow->pinned() && !(mForceHidden & GW_Stats));
-            mInventoryWindow->setVisible(mInventoryWindow->pinned() && !(mForceHidden & GW_Inventory));
-            mSpellWindow->setVisible(mSpellWindow->pinned() && !(mForceHidden & GW_Magic));
+            mMap->setVisible(mMap->pinned() && !(mForceHidden & GW_Map) && (mAllowed & GW_Map));
+            mStatsWindow->setVisible(mStatsWindow->pinned() && !(mForceHidden & GW_Stats) && (mAllowed & GW_Stats));
+            mInventoryWindow->setVisible(mInventoryWindow->pinned() && !(mForceHidden & GW_Inventory) && (mAllowed & GW_Inventory));
+            mSpellWindow->setVisible(mSpellWindow->pinned() && !(mForceHidden & GW_Magic) && (mAllowed & GW_Magic));
 
             return;
         }
@@ -865,7 +897,7 @@ namespace MWGui
                 mRepair->exit();
                 break;
             case GM_Journal:
-                MWBase::Environment::get().getSoundManager()->playSound ("book close", 1.0, 1.0);
+                playSound("book close");
                 removeGuiMode(GM_Journal); //Simple way to remove it
                 break;
             default:
@@ -1165,7 +1197,7 @@ namespace MWGui
         {
             if (!mStore)
             {
-                std::cerr << "WindowManager::onRetrieveTag: no Store set up yet, can not replace '" << tag << "'" << std::endl;
+                std::cerr << "Error: WindowManager::onRetrieveTag: no Store set up yet, can not replace '" << tag << "'" << std::endl;
                 return;
             }
             const ESM::GameSetting *setting = mStore->get<ESM::GameSetting>().find(tag);
@@ -1289,6 +1321,7 @@ namespace MWGui
     void WindowManager::setSelectedSpell(const std::string& spellId, int successChancePercent)
     {
         mSelectedSpell = spellId;
+        mSelectedEnchantItem = MWWorld::Ptr();
         mHud->setSelectedSpell(spellId, successChancePercent);
 
         const ESM::Spell* spell = mStore->get<ESM::Spell>().find(spellId);
@@ -1298,6 +1331,7 @@ namespace MWGui
 
     void WindowManager::setSelectedEnchantItem(const MWWorld::Ptr& item)
     {
+        mSelectedEnchantItem = item;
         mSelectedSpell = "";
         const ESM::Enchantment* ench = mStore->get<ESM::Enchantment>()
                 .find(item.getClass().getEnchantment(item));
@@ -1308,17 +1342,29 @@ namespace MWGui
         mSpellWindow->setTitle(item.getClass().getName(item));
     }
 
+    const MWWorld::Ptr &WindowManager::getSelectedEnchantItem() const
+    {
+        return mSelectedEnchantItem;
+    }
+
     void WindowManager::setSelectedWeapon(const MWWorld::Ptr& item)
     {
+        mSelectedWeapon = item;
         int durabilityPercent =
              static_cast<int>(item.getClass().getItemHealth(item) / static_cast<float>(item.getClass().getItemMaxHealth(item)) * 100);
         mHud->setSelectedWeapon(item, durabilityPercent);
         mInventoryWindow->setTitle(item.getClass().getName(item));
     }
 
+    const MWWorld::Ptr &WindowManager::getSelectedWeapon() const
+    {
+        return mSelectedWeapon;
+    }
+
     void WindowManager::unsetSelectedSpell()
     {
         mSelectedSpell = "";
+        mSelectedEnchantItem = MWWorld::Ptr();
         mHud->unsetSelectedSpell();
 
         MWWorld::Player* player = &MWBase::Environment::get().getWorld()->getPlayer();
@@ -1330,6 +1376,7 @@ namespace MWGui
 
     void WindowManager::unsetSelectedWeapon()
     {
+        mSelectedWeapon = MWWorld::Ptr();
         mHud->unsetSelectedWeapon();
         mInventoryWindow->setTitle("#{sSkillHandtohand}");
     }
@@ -1688,6 +1735,10 @@ namespace MWGui
         mCompanionWindow->resetReference();
         mConsole->resetReference();
 
+        mToolTips->setFocusObject(MWWorld::ConstPtr());
+
+        mInventoryWindow->clear();
+
         mSelectedSpell.clear();
 
         mCustomMarkers.clear();
@@ -1847,6 +1898,17 @@ namespace MWGui
             mVideoWidget->stop();
     }
 
+    void WindowManager::updatePinnedWindows()
+    {
+        mInventoryWindow->setPinned(Settings::Manager::getBool("inventory pin", "Windows"));
+
+        mMap->setPinned(Settings::Manager::getBool("map pin", "Windows"));
+
+        mSpellWindow->setPinned(Settings::Manager::getBool("spells pin", "Windows"));
+
+        mStatsWindow->setPinned(Settings::Manager::getBool("stats pin", "Windows"));
+    }
+
     void WindowManager::pinWindow(GuiWindow window)
     {
         switch (window)
@@ -1947,12 +2009,19 @@ namespace MWGui
 
     void WindowManager::cycleSpell(bool next)
     {
-        mSpellWindow->cycle(next);
+        if (!isGuiMode())
+            mSpellWindow->cycle(next);
     }
 
     void WindowManager::cycleWeapon(bool next)
     {
-        mInventoryWindow->cycle(next);
+        if (!isGuiMode())
+            mInventoryWindow->cycle(next);
+    }
+
+    void WindowManager::playSound(const std::string& soundId, float volume, float pitch)
+    {
+        MWBase::Environment::get().getSoundManager()->playSound(soundId, volume, pitch, MWBase::SoundManager::Play_TypeSfx, MWBase::SoundManager::Play_NoEnv);
     }
 
     void WindowManager::setConsoleSelectedObject(const MWWorld::Ptr &object)
@@ -1975,7 +2044,7 @@ namespace MWGui
     void WindowManager::startSpellBuying(const MWWorld::Ptr &actor)
     {
         pushGuiMode(GM_SpellBuying);
-        mSpellBuyingWindow->startSpellBuying(actor);
+        mSpellBuyingWindow->startSpellBuying(actor, 0);
     }
 
     void WindowManager::startTrade(const MWWorld::Ptr &actor)
@@ -2108,6 +2177,11 @@ namespace MWGui
     void WindowManager::writeFog(MWWorld::CellStore *cell)
     {
         mLocalMapRender->saveFogOfWar(cell);
+    }
+
+    const MWGui::TextColours& WindowManager::getTextColours()
+    {
+        return mTextColours;
     }
 
 }

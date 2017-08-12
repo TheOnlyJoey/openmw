@@ -63,7 +63,7 @@ namespace SceneUtil
             {
                 osg::ref_ptr<osg::Node> node = *it;
                 if (node->getNumParents() > 1)
-                    std::cerr << "CopyRigVisitor warning: node has multiple parents" << std::endl;
+                    std::cerr << "Error CopyRigVisitor: node has multiple parents" << std::endl;
                 while (node->getNumParents())
                     node->getParent(0)->removeChild(node);
 
@@ -81,6 +81,17 @@ namespace SceneUtil
         std::string mFilter2;
     };
 
+    void mergeUserData(osg::UserDataContainer* source, osg::Object* target)
+    {
+        if (!target->getUserDataContainer())
+            target->setUserDataContainer(source);
+        else
+        {
+            for (unsigned int i=0; i<source->getNumUserObjects(); ++i)
+                target->getUserDataContainer()->addUserObject(source->getUserObject(i));
+        }
+    }
+
     osg::ref_ptr<osg::Node> attach(osg::ref_ptr<osg::Node> toAttach, osg::Node *master, const std::string &filter, osg::Group* attachNode)
     {
         if (dynamic_cast<SceneUtil::Skeleton*>(toAttach.get()))
@@ -96,11 +107,13 @@ namespace SceneUtil
                 osg::ref_ptr<osg::Node> newHandle = handle->getChild(0);
                 handle->removeChild(newHandle);
                 master->asGroup()->addChild(newHandle);
+                mergeUserData(toAttach->getUserDataContainer(), newHandle);
                 return newHandle;
             }
             else
             {
                 master->asGroup()->addChild(handle);
+                handle->setUserDataContainer(toAttach->getUserDataContainer());
                 return handle;
             }
         }
@@ -121,6 +134,10 @@ namespace SceneUtil
                 trans->setPosition(boneOffset->getMatrix().getTrans());
                 // The BoneOffset rotation seems to be incorrect
                 trans->setAttitude(osg::Quat(osg::DegreesToRadians(-90.f), osg::Vec3f(1,0,0)));
+
+                // Now that we used it, get rid of the redundant node.
+                if (boneOffset->getNumChildren() == 0 && boneOffset->getNumParents() == 1)
+                    boneOffset->getParent(0)->removeChild(boneOffset);
             }
 
             if (attachNode->getName().find("Left") != std::string::npos)

@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <limits>
+#include <cstdlib>
 
 #include <osg/Light>
 #include <osg/LightModel>
@@ -20,6 +21,7 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/imagemanager.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/resource/keyframemanager.hpp>
 
 #include <components/settings/settings.hpp>
 
@@ -32,6 +34,7 @@
 #include <components/sceneutil/writescene.hpp>
 
 #include <components/terrain/terraingrid.hpp>
+#include <components/terrain/quadtreeworld.hpp>
 
 #include <components/esm/loadcell.hpp>
 #include <components/fallback/fallback.hpp>
@@ -140,24 +143,35 @@ namespace MWRender
 
         virtual void doWork()
         {
-            for (std::vector<std::string>::const_iterator it = mModels.begin(); it != mModels.end(); ++it)
-                mResourceSystem->getSceneManager()->getTemplate(*it);
-            for (std::vector<std::string>::const_iterator it = mTextures.begin(); it != mTextures.end(); ++it)
-                mResourceSystem->getImageManager()->getImage(*it);
+            try
+            {
+                for (std::vector<std::string>::const_iterator it = mModels.begin(); it != mModels.end(); ++it)
+                    mResourceSystem->getSceneManager()->cacheInstance(*it);
+                for (std::vector<std::string>::const_iterator it = mTextures.begin(); it != mTextures.end(); ++it)
+                    mResourceSystem->getImageManager()->getImage(*it);
+                for (std::vector<std::string>::const_iterator it = mKeyframes.begin(); it != mKeyframes.end(); ++it)
+                    mResourceSystem->getKeyframeManager()->get(*it);
+            }
+            catch (std::exception&)
+            {
+                // ignore error (will be shown when these are needed proper)
+            }
         }
 
         std::vector<std::string> mModels;
         std::vector<std::string> mTextures;
+        std::vector<std::string> mKeyframes;
 
     private:
         Resource::ResourceSystem* mResourceSystem;
     };
 
-    RenderingManager::RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, Resource::ResourceSystem* resourceSystem,
+    RenderingManager::RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
                                        const Fallback::Map* fallback, const std::string& resourcePath)
         : mViewer(viewer)
         , mRootNode(rootNode)
         , mResourceSystem(resourceSystem)
+        , mWorkQueue(workQueue)
         , mUnrefQueue(new SceneUtil::UnrefQueue)
         , mFogDepth(0.f)
         , mUnderwaterColor(fallback->getFallbackColour("Water_UnderwaterColor"))
@@ -168,11 +182,6 @@ namespace MWRender
         , mFieldOfViewOverride(0.f)
         , mFieldOfViewOverridden(false)
     {
-        int numThreads = Settings::Manager::getInt("preload num threads", "Cells");
-        if (numThreads <= 0)
-            throw std::runtime_error("Invalid setting: 'preload num threads' must be >0");
-        mWorkQueue = new SceneUtil::WorkQueue(numThreads);
-
         resourceSystem->getSceneManager()->setParticleSystemMask(MWRender::Mask_ParticleSystem);
         resourceSystem->getSceneManager()->setShaderPath(resourcePath + "/shaders");
         resourceSystem->getSceneManager()->setForceShaders(Settings::Manager::getBool("force shaders", "Shaders"));
@@ -195,7 +204,8 @@ namespace MWRender
 
         mObjects.reset(new Objects(mResourceSystem, sceneRoot, mUnrefQueue.get()));
 
-        mViewer->setIncrementalCompileOperation(new osgUtil::IncrementalCompileOperation);
+        if (getenv("OPENMW_DONT_PRECOMPILE") == NULL)
+            mViewer->setIncrementalCompileOperation(new osgUtil::IncrementalCompileOperation);
 
         mResourceSystem->getSceneManager()->setIncrementalCompileOperation(mViewer->getIncrementalCompileOperation());
 
@@ -203,11 +213,16 @@ namespace MWRender
 
         mWater.reset(new Water(mRootNode, sceneRoot, mResourceSystem, mViewer->getIncrementalCompileOperation(), fallback, resourcePath));
 
-        mTerrain.reset(new Terrain::TerrainGrid(sceneRoot, mResourceSystem, mViewer->getIncrementalCompileOperation(),
-                                                new TerrainStorage(mResourceSystem->getVFS(), Settings::Manager::getString("normal map pattern", "Shaders"), Settings::Manager::getString("normal height map pattern", "Shaders"),
-                                                                   Settings::Manager::getBool("auto use terrain normal maps", "Shaders"),
-                                                     Settings::Manager::getString("terrain specular map pattern", "Shaders"), Settings::Manager::getBool("auto use terrain specular maps", "Shaders")),
-                                                 Mask_Terrain, &mResourceSystem->getSceneManager()->getShaderManager(), mUnrefQueue.get()));
+        const bool distantTerrain = Settings::Manager::getBool("distant terrain", "Terrain");
+        mTerrainStorage = new TerrainStorage(mResourceSystem, Settings::Manager::getString("normal map pattern", "Shaders"), Settings::Manager::getString("normal height map pattern", "Shaders"),
+                                            Settings::Manager::getBool("auto use terrain normal maps", "Shaders"), Settings::Manager::getString("terrain specular map pattern", "Shaders"),
+                                             Settings::Manager::getBool("auto use terrain specular maps", "Shaders"));
+
+        if (distantTerrain)
+            mTerrain.reset(new Terrain::QuadTreeWorld(sceneRoot, mRootNode, mResourceSystem, mTerrainStorage, Mask_Terrain, Mask_PreCompile));
+        else
+            mTerrain.reset(new Terrain::TerrainGrid(sceneRoot, mRootNode, mResourceSystem, mTerrainStorage, Mask_Terrain, Mask_PreCompile));
+        mTerrain->setDefaultViewer(mViewer->getCamera());
 
         mCamera.reset(new Camera(mViewer->getCamera()));
 
@@ -310,6 +325,13 @@ namespace MWRender
         mSky->listAssetsToPreload(workItem->mModels, workItem->mTextures);
         mWater->listAssetsToPreload(workItem->mTextures);
 
+        const char* basemodels[] = {"xbase_anim", "xbase_anim.1st", "xbase_anim_female", "xbase_animkna"};
+        for (size_t i=0; i<sizeof(basemodels)/sizeof(basemodels[0]); ++i)
+        {
+            workItem->mModels.push_back(std::string("meshes/") + basemodels[i] + ".nif");
+            workItem->mKeyframes.push_back(std::string("meshes/") + basemodels[i] + ".kf");
+        }
+
         workItem->mTextures.push_back("textures/_land_default.dds");
 
         mWorkQueue->addWorkItem(workItem);
@@ -406,6 +428,11 @@ namespace MWRender
         mWater->removeCell(store);
     }
 
+    void RenderingManager::enableTerrain(bool enable)
+    {
+        mTerrain->enable(enable);
+    }
+
     void RenderingManager::setSkyEnabled(bool enabled)
     {
         mSky->setEnabled(enabled);
@@ -437,14 +464,6 @@ namespace MWRender
             mViewer->getCamera()->setCullMask(mask);
             return enabled;
         }
-        /*
-        else //if (mode == Render_BoundingBoxes)
-        {
-            bool show = !mRendering.getScene()->getShowBoundingBoxes();
-            mRendering.getScene()->showBoundingBoxes(show);
-            return show;
-        }
-        */
         return false;
     }
 
@@ -469,6 +488,8 @@ namespace MWRender
 
     void RenderingManager::update(float dt, bool paused)
     {
+        reportStats();
+
         mUnrefQueue->flush(mWorkQueue.get());
 
         if (!paused)
@@ -497,9 +518,11 @@ namespace MWRender
         
         if (mWater->isUnderwater(cameraPos))
         {
+            float viewDistance = mViewDistance;
+            viewDistance = std::min(viewDistance, 6666.f);
             setFogColor(mUnderwaterColor * mUnderwaterWeight + mFogColor * (1.f-mUnderwaterWeight));
-            mStateUpdater->setFogStart(mViewDistance * (1 - mUnderwaterFog));
-            mStateUpdater->setFogEnd(mViewDistance);
+            mStateUpdater->setFogStart(viewDistance * (1 - mUnderwaterFog));
+            mStateUpdater->setFogEnd(viewDistance);
         }
         else
         {
@@ -722,18 +745,23 @@ namespace MWRender
 
     }
 
-    osg::ref_ptr<osgUtil::IntersectionVisitor> createIntersectionVisitor(osgUtil::Intersector* intersector, bool ignorePlayer, bool ignoreActors)
+    osg::ref_ptr<osgUtil::IntersectionVisitor> RenderingManager::getIntersectionVisitor(osgUtil::Intersector *intersector, bool ignorePlayer, bool ignoreActors)
     {
-        osg::ref_ptr<osgUtil::IntersectionVisitor> intersectionVisitor( new osgUtil::IntersectionVisitor(intersector));
-        int mask = intersectionVisitor->getTraversalMask();
+        if (!mIntersectionVisitor)
+            mIntersectionVisitor = new osgUtil::IntersectionVisitor;
+
+        mIntersectionVisitor->setTraversalNumber(mViewer->getFrameStamp()->getFrameNumber());
+        mIntersectionVisitor->setIntersector(intersector);
+
+        int mask = ~0;
         mask &= ~(Mask_RenderToTexture|Mask_Sky|Mask_Debug|Mask_Effect|Mask_Water|Mask_SimpleWater);
         if (ignorePlayer)
             mask &= ~(Mask_Player);
         if (ignoreActors)
             mask &= ~(Mask_Actor|Mask_Player);
 
-        intersectionVisitor->setTraversalMask(mask);
-        return intersectionVisitor;
+        mIntersectionVisitor->setTraversalMask(mask);
+        return mIntersectionVisitor;
     }
 
     RenderingManager::RayResult RenderingManager::castRay(const osg::Vec3f& origin, const osg::Vec3f& dest, bool ignorePlayer, bool ignoreActors)
@@ -742,7 +770,7 @@ namespace MWRender
             origin, dest));
         intersector->setIntersectionLimit(osgUtil::LineSegmentIntersector::LIMIT_NEAREST);
 
-        mRootNode->accept(*createIntersectionVisitor(intersector, ignorePlayer, ignoreActors));
+        mRootNode->accept(*getIntersectionVisitor(intersector, ignorePlayer, ignoreActors));
 
         return getIntersectionResult(intersector);
     }
@@ -761,7 +789,7 @@ namespace MWRender
         intersector->setEnd(end);
         intersector->setIntersectionLimit(osgUtil::LineSegmentIntersector::LIMIT_NEAREST);
 
-        mViewer->getCamera()->accept(*createIntersectionVisitor(intersector, ignorePlayer, ignoreActors));
+        mViewer->getCamera()->accept(*getIntersectionVisitor(intersector, ignorePlayer, ignoreActors));
 
         return getIntersectionResult(intersector);
     }
@@ -825,8 +853,8 @@ namespace MWRender
 
     void RenderingManager::renderPlayer(const MWWorld::Ptr &player)
     {
-        mPlayerAnimation.reset(new NpcAnimation(player, player.getRefData().getBaseNode(), mResourceSystem, 0, false, NpcAnimation::VM_Normal,
-                                                mFirstPersonFieldOfView));
+        mPlayerAnimation = new NpcAnimation(player, player.getRefData().getBaseNode(), mResourceSystem, 0, NpcAnimation::VM_Normal,
+                                                mFirstPersonFieldOfView);
 
         mCamera->setAnimation(mPlayerAnimation.get());
         mCamera->attachTo(player);
@@ -905,6 +933,18 @@ namespace MWRender
         mViewer->getCamera()->setClearColor(color);
 
         mStateUpdater->setFogColor(color);
+    }
+
+    void RenderingManager::reportStats() const
+    {
+        osg::Stats* stats = mViewer->getViewerStats();
+        unsigned int frameNumber = mViewer->getFrameStamp()->getFrameNumber();
+        if (stats->collectStats("resource"))
+        {
+            stats->setAttribute(frameNumber, "UnrefQueue", mUnrefQueue->getNumItems());
+
+            mTerrain->reportStats(frameNumber, stats);
+        }
     }
 
     void RenderingManager::processChangedSettings(const Settings::CategorySettingVector &changed)
@@ -1043,6 +1083,11 @@ namespace MWRender
             node = ptr.getRefData().getBaseNode();
 
         SceneUtil::writeScene(node, filename, format);
+    }
+
+    LandManager *RenderingManager::getLandManager() const
+    {
+        return mTerrainStorage->getLandManager();
     }
 
     void RenderingManager::toggleHMD(bool var)

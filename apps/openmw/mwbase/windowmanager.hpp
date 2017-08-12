@@ -72,6 +72,8 @@ namespace MWGui
         ShowInDialogueMode_Only,
         ShowInDialogueMode_Never
     };
+
+    struct TextColours;
 }
 
 namespace SFO
@@ -215,7 +217,9 @@ namespace MWBase
             virtual std::string getSelectedSpell() = 0;
             virtual void setSelectedSpell(const std::string& spellId, int successChancePercent) = 0;
             virtual void setSelectedEnchantItem(const MWWorld::Ptr& item) = 0;
+            virtual const MWWorld::Ptr& getSelectedEnchantItem() const = 0;
             virtual void setSelectedWeapon(const MWWorld::Ptr& item) = 0;
+            virtual const MWWorld::Ptr& getSelectedWeapon() const = 0;
             virtual void unsetSelectedSpell() = 0;
             virtual void unsetSelectedWeapon() = 0;
 
@@ -349,6 +353,8 @@ namespace MWBase
             /// Cycle to next or previous weapon
             virtual void cycleWeapon(bool next) = 0;
 
+            virtual void playSound(const std::string& soundId, float volume = 1.f, float pitch = 1.f) = 0;
+
             // In WindowManager for now since there isn't a VFS singleton
             virtual std::string correctIconPath(const std::string& path) = 0;
             virtual std::string correctBookartPath(const std::string& path, int width, int height) = 0;
@@ -357,6 +363,8 @@ namespace MWBase
 
             virtual void removeCell(MWWorld::CellStore* cell) = 0;
             virtual void writeFog(MWWorld::CellStore* cell) = 0;
+
+            virtual const MWGui::TextColours& getTextColours() = 0;
     };
 }
 

@@ -235,10 +235,10 @@ namespace MWScript
                 virtual void execute (Interpreter::Runtime& runtime)
                 {
                     bool enabled =
-                        MWBase::Environment::get().getWorld()->toggleRenderMode (MWRender::Render_BoundingBoxes);
+                        MWBase::Environment::get().getWorld()->toggleRenderMode (MWRender::Render_CollisionDebug);
 
                     runtime.getContext().report (enabled ?
-                        "Bounding Box Rendering -> On" : "Bounding Box Rendering -> Off");
+                        "Collision Mesh Rendering -> On" : "Collision Mesh Rendering -> Off");
                 }
         };
 
@@ -519,7 +519,7 @@ namespace MWScript
                         int numNotEquipped = invStorePtr->count(item);
                         for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
                         {
-                            MWWorld::ContainerStoreIterator it = invStorePtr->getSlot (slot);
+                            MWWorld::ConstContainerStoreIterator it = invStorePtr->getSlot (slot);
                             if (it != invStorePtr->end() && ::Misc::StringUtils::ciEqual(it->getCellRef().getRefId(), item))
                             {
                                 numNotEquipped -= it->getRefData().getCount();

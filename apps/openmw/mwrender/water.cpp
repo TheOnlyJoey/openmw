@@ -10,8 +10,6 @@
 #include <osg/PositionAttitudeTransform>
 #include <osg/ClipNode>
 #include <osg/FrontFace>
-#include <osg/Shader>
-#include <osg/GLExtensions>
 
 #include <osgDB/ReadFile>
 
@@ -28,11 +26,9 @@
 #include <components/sceneutil/waterutil.hpp>
 
 #include <components/nifosg/controller.hpp>
-#include <components/sceneutil/controller.hpp>
 
 #include <components/shader/shadermanager.hpp>
 
-#include <components/settings/settings.hpp>
 
 #include <components/esm/loadcell.hpp>
 
@@ -197,16 +193,16 @@ osg::ref_ptr<osg::Image> readPngImage (const std::string& file)
     boost::filesystem::ifstream inStream;
     inStream.open(file, std::ios_base::in | std::ios_base::binary);
     if (inStream.fail())
-        std::cerr << "Failed to open " << file << std::endl;
+        std::cerr << "Error: Failed to open " << file << std::endl;
     osgDB::ReaderWriter* reader = osgDB::Registry::instance()->getReaderWriterForExtension("png");
     if (!reader)
     {
-        std::cerr << "Failed to read " << file << ", no png readerwriter found" << std::endl;
+        std::cerr << "Error: Failed to read " << file << ", no png readerwriter found" << std::endl;
         return osg::ref_ptr<osg::Image>();
     }
     osgDB::ReaderWriter::ReadResult result = reader->readImage(inStream);
     if (!result.success())
-        std::cerr << "Failed to read " << file << ": " << result.message() << " code " << result.status() << std::endl;
+        std::cerr << "Error: Failed to read " << file << ": " << result.message() << " code " << result.status() << std::endl;
 
     return result.getImage();
 }
@@ -488,7 +484,7 @@ void Water::createSimpleWaterStateSet(osg::Node* node, float alpha)
     float fps = mFallback->getFallbackFloat("Water_SurfaceFPS");
 
     osg::ref_ptr<NifOsg::FlipController> controller (new NifOsg::FlipController(0, 1.f/fps, textures));
-    controller->setSource(boost::shared_ptr<SceneUtil::ControllerSource>(new SceneUtil::FrameTimeSource));
+    controller->setSource(std::shared_ptr<SceneUtil::ControllerSource>(new SceneUtil::FrameTimeSource));
     node->setUpdateCallback(controller);
 
     stateset->setTextureAttributeAndModes(0, textures[0], osg::StateAttribute::ON);
